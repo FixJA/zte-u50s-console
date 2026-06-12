@@ -1,0 +1,66 @@
+{
+  "name": "zte-u50s-console",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "electron/main.mjs",
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node --test",
+    "electron:dev": "electron .",
+    "dist": "electron-builder --publish always",
+    "dist:mac": "electron-builder --mac --publish always",
+    "dist:win": "electron-builder --win --publish always",
+    "dist:linux": "electron-builder --linux --publish always"
+  },
+  "devDependencies": {
+    "electron": "^36.9.5",
+    "electron-builder": "^26"
+  },
+  "build": {
+    "appId": "com.zte.u50s-console",
+    "productName": "zte-u50s-console",
+    "artifactName": "${name}-${version}-${os}-${arch}.${ext}",
+    "publish": {
+      "provider": "github",
+      "owner": "FixJA",
+      "repo": "zte-u50s-console"
+    },
+    "files": [
+      "server.mjs",
+      "lib/**",
+      "public/**",
+      "electron/**",
+      "package.json",
+      "build/**"
+    ],
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ]
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "nsis": {
+      "artifactName": "${name}-${version}-${arch}-Setup.${ext}"
+    },
+    "portable": {
+      "artifactName": "${name}-${version}-${arch}-portable.${ext}"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Utility"
+    },
+    "directories": {
+      "output": "dist"
+    }
+  }
+}

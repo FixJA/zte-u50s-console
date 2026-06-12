@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ZTE U50S 调试后台</title>
+    <link rel="icon" href="/favicon.ico">
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <h1>ZTE U50S 调试后台</h1>
+          <p id="routerTarget">路由器: --</p>
+        </div>
+        <div class="session">
+          <span id="sessionBadge" class="badge">未登录</span>
+          <button id="logoutBtn" class="ghost" type="button" hidden>退出</button>
+          <button id="rebootBtn" class="danger ghost" type="button" hidden>重启路由器</button>
+        </div>
+      </header>
+
+      <section id="loginPanel" class="band panel compact">
+        <form id="loginForm" class="login-form">
+          <label>
+            路由器地址
+            <input id="routerBaseUrl" name="routerBaseUrl" type="text" inputmode="url" autocomplete="url" placeholder="192.168.0.1" required>
+          </label>
+          <label>
+            后台密码
+            <input id="password" name="password" type="password" autocomplete="current-password" required>
+          </label>
+          <button type="submit">登录</button>
+        </form>
+      </section>
+
+      <section class="band grid">
+        <article class="panel status-panel">
+          <div class="panel-head">
+            <h2>实时网络</h2>
+            <span id="lastUpdated">--</span>
+          </div>
+          <div class="network-mode">
+            <span id="modePill">--</span>
+            <strong id="networkType">--</strong>
+          </div>
+          <div class="metrics">
+            <div class="nr5g-metrics">
+              <div><span>RSRP</span><strong id="nrRsrp">--</strong></div>
+              <div><span>SINR</span><strong id="nrSinr">--</strong></div>
+              <div><span>Band</span><strong id="nrBand">--</strong></div>
+              <div><span>ARFCN</span><strong id="nrChannel">--</strong></div>
+              <div><span>PCI</span><strong id="nrPci">--</strong></div>
+              <div><span>Cell</span><strong id="nrCell">--</strong></div>
+            </div>
+            <div class="lte-metrics">
+              <div><span>RSRP</span><strong id="lteRsrp">--</strong></div>
+              <div><span>SINR</span><strong id="lteSinr">--</strong></div>
+              <div><span>Band</span><strong id="lteBand">--</strong></div>
+              <div><span>EARFCN</span><strong id="lteChannel">--</strong></div>
+              <div><span>PCI</span><strong id="ltePci">--</strong></div>
+              <div><span>CA</span><strong id="lteCa">--</strong></div>
+            </div>
+          </div>
+        </article>
+
+        <article class="panel">
+          <div class="panel-head">
+            <h2>当前锁定</h2>
+            <button id="refreshBandsBtn" class="ghost" type="button">刷新</button>
+          </div>
+          <dl class="lock-status">
+            <dt>4G</dt><dd id="current4g">--</dd>
+            <dt>5G</dt><dd id="current5g">--</dd>
+            <dt>模式</dt><dd id="currentMode">--</dd>
+          </dl>
+          <div id="networkModes" class="mode-list"></div>
+          <button id="setModeBtn" type="button">应用</button>
+        </article>
+      </section>
+
+      <section class="band grid">
+        <article class="panel">
+          <h2>4G 频段锁定</h2>
+          <div id="lteBands" class="band-list"></div>
+          <button id="lock4gBtn" type="button">锁定 4G 频段</button>
+        </article>
+
+        <article class="panel">
+          <h2>5G 频段锁定</h2>
+          <div id="nrBands" class="band-list"></div>
+          <button id="lock5gBtn" type="button">锁定 5G 频段</button>
+        </article>
+      </section>
+
+      <section class="band">
+        <article class="panel">
+          <div class="panel-head">
+            <h2>5G 锁小区</h2>
+            <button id="useCurrentCellBtn" class="ghost" type="button">使用当前</button>
+          </div>
+          <div class="cell-lock-form">
+            <label>PCI<input id="cellPci" type="text" inputmode="numeric" placeholder="如 572"></label>
+            <label>EARFCN<input id="cellEarfcn" type="text" inputmode="numeric" placeholder="如 504990"></label>
+            <label>Band<input id="cellBand" type="text" inputmode="numeric" placeholder="如 41"></label>
+            <label>SCS
+              <select id="cellScs">
+                <option value="0">15 kHz</option>
+                <option value="1" selected>30 kHz</option>
+                <option value="2">60 kHz</option>
+                <option value="3">120 kHz</option>
+              </select>
+            </label>
+          </div>
+          <div class="cell-lock-actions">
+            <button id="lockCell5gBtn" type="button">锁定 5G 小区</button>
+            <button id="unlockCell5gBtn" class="ghost" type="button">解锁</button>
+          </div>
+        </article>
+      </section>
+
+      <section class="band grid">
+        <article class="panel">
+          <div class="panel-head">
+            <h2>设备实时状态</h2>
+            <span id="deviceUpdated">--</span>
+          </div>
+          <div class="metrics compact-metrics">
+            <div><span>下载</span><strong id="downloadRate">--</strong></div>
+            <div><span>上传</span><strong id="uploadRate">--</strong></div>
+            <div><span>电量</span><strong id="batteryPercent">--</strong></div>
+            <div><span>供电</span><strong id="batteryCharging">--</strong></div>
+            <div><span>电池温度</span><strong id="batteryTemp">--</strong></div>
+            <div><span>放电状态</span><strong id="batteryReason">--</strong></div>
+          </div>
+        </article>
+
+        <article class="panel">
+          <div class="panel-head">
+            <h2>温控</h2>
+            <div class="thermal-switch" role="group" aria-label="温控开关">
+              <button id="enableThermalBtn" class="ghost" type="button" data-thermal-target="true">开启</button>
+              <button id="disableThermalBtn" class="danger ghost" type="button" data-thermal-target="false">关闭</button>
+            </div>
+          </div>
+          <dl class="lock-status">
+            <dt>状态</dt><dd id="thermalEnabled">--</dd>
+            <dt>LED</dt><dd id="thermalLed">--</dd>
+          </dl>
+          <div class="metrics compact-metrics thermal-grid">
+            <div><span>Wi-Fi 芯片</span><strong id="tempWifiChip">--</strong></div>
+            <div><span>PA</span><strong id="tempPa">--</strong></div>
+            <div><span>PA FRL</span><strong id="tempPaFrl">--</strong></div>
+            <div><span>TJ</span><strong id="tempTj">--</strong></div>
+            <div><span>PA1</span><strong id="tempPa1">--</strong></div>
+            <div><span>MDM</span><strong id="tempMdm">--</strong></div>
+            <div><span>5G Modem</span><strong id="tempModem5g">--</strong></div>
+            <div><span>Wi-Fi Level</span><strong id="tempWifiLevel">--</strong></div>
+          </div>
+        </article>
+      </section>
+
+      <section id="message" class="message" aria-live="polite"></section>
+    </main>
+
+    <dialog id="confirmDialog">
+      <form method="dialog">
+        <h2 id="confirmTitle">确认操作</h2>
+        <pre id="confirmPayload"></pre>
+        <div class="dialog-actions">
+          <button class="ghost" value="cancel">取消</button>
+          <button id="confirmSubmitBtn" value="confirm">确认提交</button>
+        </div>
+      </form>
+    </dialog>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
