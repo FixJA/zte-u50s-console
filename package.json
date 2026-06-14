@@ -8,10 +8,14 @@
     "start": "node server.mjs",
     "test": "node --test",
     "electron:dev": "electron .",
-    "dist": "electron-builder --publish always",
-    "dist:mac": "electron-builder --mac --publish always",
-    "dist:win": "electron-builder --win --publish always",
-    "dist:linux": "electron-builder --linux --publish always"
+    "dist": "electron-builder",
+    "dist:mac": "electron-builder --mac",
+    "dist:win": "electron-builder --win",
+    "dist:linux": "electron-builder --linux",
+    "release": "electron-builder --publish always",
+    "release:mac": "electron-builder --mac --publish always",
+    "release:win": "electron-builder --win --publish always",
+    "release:linux": "electron-builder --linux --publish always"
   },
   "devDependencies": {
     "electron": "^36.9.5",
