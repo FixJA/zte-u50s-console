@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { createDebugLogger } from "./lib/debug-log.mjs";
 import { RouterClient } from "./lib/router-client.mjs";
+import { saveCredentials, loadCredentials, clearCredentials } from "./lib/credentials-store.mjs";
 import {
   DEFAULT_HOST,
   DEFAULT_PORT,
@@ -46,14 +47,62 @@ export function startServer(options = {}) {
   const port = options.port ?? Number(process.env.PORT || DEFAULT_PORT);
   return new Promise((resolve, reject) => {
     server.on("error", reject);
-    server.listen(port, host, () => {
+    server.listen(port, host, async () => {
       const { address, port: actualPort } = server.address();
       const url = `http://${address}:${actualPort}`;
       console.log(`ZTE 5G debug console: ${url}`);
       console.log(`Router target: ${router.baseUrl}`);
+      await attemptAutoLogin();
       resolve({ url, close: () => server.close() });
     });
   });
+}
+
+async function attemptAutoLogin() {
+  let creds;
+  try {
+    creds = await loadCredentials();
+  } catch (err) {
+    console.warn("[boot] 凭证文件已损坏, 清除:", err.message);
+    try { await clearCredentials(); } catch (_) {}
+    return;
+  }
+  if (!creds) return;
+  try {
+    if (creds.routerBaseUrl && creds.routerBaseUrl !== router.baseUrl) {
+      router.setBaseUrl(creds.routerBaseUrl);
+      console.log(`[boot] 已恢复路由器地址: ${router.baseUrl}`);
+    }
+    const result = await router.login(creds.password);
+    if (result.ok) {
+      startKeepalive();
+      console.log("[boot] 自动登录成功");
+      return;
+    }
+    console.warn("[boot] 自动登录失败:", result.message, "— 清除已保存凭证");
+    await clearCredentials();
+  } catch (err) {
+    if (isNetworkError(err)) {
+      console.warn("[boot] 路由器暂不可达, 保留凭证下次重试:", err.message);
+    } else {
+      console.warn("[boot] 自动登录异常:", err.message);
+      try { await clearCredentials(); } catch (_) {}
+    }
+  }
+}
+
+const NETWORK_ERROR_CODES = new Set([
+  "ENOTFOUND", "ECONNREFUSED", "ECONNRESET", "ETIMEDOUT",
+  "EAI_AGAIN", "EHOSTUNREACH", "ENETUNREACH", "EHOSTDOWN",
+]);
+
+function isNetworkError(err) {
+  let cursor = err;
+  while (cursor) {
+    if (cursor.code && NETWORK_ERROR_CODES.has(cursor.code)) return true;
+    cursor = cursor.cause;
+  }
+  return false;
 }
 
 if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
@@ -80,6 +129,7 @@ async function handleApi(req, res) {
     router.setBaseUrl(body.router);
     pendingActions.clear();
     stopKeepalive();
+    try { await clearCredentials(); } catch (err) { console.warn("[router-target] 清除凭证失败:", err.message); }
     sendJson(res, 200, { ok: true, message: "路由器地址已更新", session: router.session() });
     return;
   }
@@ -87,13 +137,22 @@ async function handleApi(req, res) {
     const body = await readJson(req);
     if (!body.password) throw badRequest("请输入路由器后台密码");
     const result = await router.login(body.password);
-    if (result.ok) startKeepalive();
+    if (result.ok) {
+      startKeepalive();
+      try {
+        await saveCredentials({ password: body.password, routerBaseUrl: router.baseUrl });
+      } catch (err) {
+        console.warn("[login] 凭证持久化失败:", err.message);
+      }
+    }
     sendJson(res, 200, result);
     return;
   }
   if (req.method === "POST" && pathname === "/api/logout") {
     stopKeepalive();
-    sendJson(res, 200, await router.logout());
+    await router.logout();
+    try { await clearCredentials(); } catch (err) { console.warn("[logout] 清除凭证失败:", err.message); }
+    sendJson(res, 200, { ok: true });
     return;
   }
   requireLogin();
