@@ -1,4 +1,5 @@
 import { openConfirmDialog } from "./confirm-flow.mjs";
+import makeQrCode from "./vendor/qrcode-generator.mjs";
 
 const state = {
   config: null,
@@ -7,6 +8,13 @@ const state = {
   pendingAction: null,
   refreshTimer: null,
   lastLiveNetwork: null,
+  wifiStatus: null,
+  wpsTimer: null,
+  wpsDeadline: null,
+  wpsActivated: false,
+  wpsPollTick: 0,
+  wifiQrPayload2g: null,
+  wifiQrPayload5g: null,
 };
 
 const THERMAL_DETECTION_WINDOW_MS = 5 * 60 * 1000;
@@ -45,6 +53,24 @@ const els = {
   confirmTitle: document.querySelector("#confirmTitle"),
   confirmPayload: document.querySelector("#confirmPayload"),
   confirmSubmitBtn: document.querySelector("#confirmSubmitBtn"),
+  wifiSsid: document.querySelector("#wifiSsid"),
+  wifiSsid5g: document.querySelector("#wifiSsid5g"),
+  wifiSsid5gLabel: document.querySelector("#wifiSsid5gLabel"),
+  wifiSecurity: document.querySelector("#wifiSecurity"),
+  wifiHidden: document.querySelector("#wifiHidden"),
+  enableWifiBtn: document.querySelector("#enableWifiBtn"),
+  disableWifiBtn: document.querySelector("#disableWifiBtn"),
+  wpsPbcBtn: document.querySelector("#wpsPbcBtn"),
+  wpsBandField: document.querySelector("#wpsBandField"),
+  wpsBand5g: document.querySelector("#wpsBand5g"),
+  wpsCountdown: document.querySelector("#wpsCountdown"),
+  wifiQrWrap: document.querySelector("#wifiQrWrap"),
+  wifiQr2g: document.querySelector("#wifiQr2g"),
+  wifiQr5g: document.querySelector("#wifiQr5g"),
+  wifiQrLabel2g: document.querySelector("#wifiQrLabel2g"),
+  wifiQrLabel5g: document.querySelector("#wifiQrLabel5g"),
+  wifiQrCanvas2g: document.querySelector("#wifiQrCanvas2g"),
+  wifiQrCanvas5g: document.querySelector("#wifiQrCanvas5g"),
 };
 
 const fieldMap = {
@@ -132,6 +158,10 @@ function bindEvents() {
   els.disableThermalBtn.addEventListener("click", () => confirmThermalSwitch(false));
   els.setModeBtn.addEventListener("click", confirmNetworkMode);
 
+  els.enableWifiBtn.addEventListener("click", () => confirmWifiSwitch(true));
+  els.disableWifiBtn.addEventListener("click", () => confirmWifiSwitch(false));
+  els.wpsPbcBtn.addEventListener("click", confirmWpsPbc);
+
   els.confirmDialog.addEventListener("close", async () => {
     if (els.confirmDialog.returnValue !== "confirm" || !state.pendingAction) {
       state.pendingAction = null;
@@ -163,15 +193,21 @@ async function refreshSession() {
   els.enableThermalBtn.disabled = !session.loggedIn;
   els.disableThermalBtn.disabled = !session.loggedIn;
   els.setModeBtn.disabled = !session.loggedIn;
+  els.enableWifiBtn.disabled = !session.loggedIn;
+  els.disableWifiBtn.disabled = !session.loggedIn;
+  els.wpsPbcBtn.disabled = !session.loggedIn;
   if (session.loggedIn) {
     startRefresh();
     await refreshBands();
+    await refreshWifi();
   } else {
     state.bandStatus = null;
     state.thermalProbe = null;
     state.lastLiveNetwork = null;
+    state.wifiStatus = null;
     renderEmptyNetwork();
     renderEmptyDeviceStatus();
+    renderEmptyWifi();
     syncBandSelections();
   }
 }
@@ -185,8 +221,10 @@ async function applyRouterTarget({ silent = false } = {}) {
   state.bandStatus = null;
   state.thermalProbe = null;
   state.pendingAction = null;
+  state.wifiStatus = null;
   renderEmptyNetwork();
   renderEmptyDeviceStatus();
+  renderEmptyWifi();
   syncBandSelections();
   const session = result.session || {};
   els.routerTarget.textContent = `路由器: ${session.router || "--"}`;
@@ -205,6 +243,9 @@ async function applyRouterTarget({ silent = false } = {}) {
   els.enableThermalBtn.disabled = true;
   els.disableThermalBtn.disabled = true;
   els.setModeBtn.disabled = true;
+  els.enableWifiBtn.disabled = true;
+  els.disableWifiBtn.disabled = true;
+  els.wpsPbcBtn.disabled = true;
   if (!silent) showMessage(result.message || "路由器地址已更新", "ok");
   return result;
 }
@@ -235,6 +276,7 @@ async function refreshNetwork() {
     renderDeviceStatus(data);
     els.lastUpdated.textContent = new Date().toLocaleTimeString();
     document.querySelector("#deviceUpdated").textContent = els.lastUpdated.textContent;
+    refreshWifi({ silent: true });
   } catch (error) {
     if (handleSessionExpired(error)) return;
     showMessage(error.message, "error");
@@ -468,11 +510,219 @@ async function submitPendingAction() {
     showMessage(result.result?.result === "success" || result.ok ? action.successMessage : "请求返回异常", result.ok ? "ok" : "error");
     await refreshBands();
     await refreshNetwork();
+    if (action.onSuccess) await action.onSuccess();
   } catch (error) {
     if (handleSessionExpired(error)) return;
     showMessage(error.message, "error");
   } finally {
     setBusy(false);
+  }
+}
+
+async function refreshWifi({ silent = false } = {}) {
+  try {
+    const data = await api("/api/wifi/status");
+    state.wifiStatus = data;
+    renderWifi(data);
+  } catch (error) {
+    if (handleSessionExpired(error)) return;
+    if (!silent) showMessage(error.message, "error");
+  }
+}
+
+function renderWifi(data) {
+  const on = data.enabled === true;
+  els.enableWifiBtn.classList.toggle("selected", on);
+  els.disableWifiBtn.classList.toggle("selected", on === false);
+  els.wifiSsid.textContent = data.ssid || "--";
+  const show5g = Boolean(data.ssid5g) && !data.sync;
+  els.wifiSsid5gLabel.hidden = !show5g;
+  els.wifiSsid5g.hidden = !show5g;
+  els.wifiSsid5g.textContent = show5g ? data.ssid5g : "--";
+  els.wifiSecurity.textContent = data.securityLabel || "--";
+  els.wifiHidden.textContent = data.hidden ? "隐藏" : "广播";
+  els.wpsBandField.hidden = !on;
+  els.wpsPbcBtn.hidden = !on;
+  els.wpsPbcBtn.disabled = Boolean(on && data.hidden);
+  els.wpsPbcBtn.title = on && data.hidden ? "WPS 要求 SSID 广播，当前为隐藏" : "";
+  if (!on) stopWpsCountdown();
+  const codes = on ? data.qrCodes : null;
+  if (codes && codes.length) {
+    els.wifiQrWrap.hidden = false;
+    renderWifiQrItem(els.wifiQr2g, els.wifiQrCanvas2g, els.wifiQrLabel2g, codes[0], "wifiQrPayload2g");
+    renderWifiQrItem(els.wifiQr5g, els.wifiQrCanvas5g, els.wifiQrLabel5g, codes[1], "wifiQrPayload5g");
+  } else {
+    els.wifiQrWrap.hidden = true;
+    state.wifiQrPayload2g = null;
+    state.wifiQrPayload5g = null;
+  }
+}
+
+function renderWifiQrItem(item, canvas, label, code, guardKey) {
+  if (!code) {
+    item.hidden = true;
+    state[guardKey] = null;
+    return;
+  }
+  item.hidden = false;
+  label.textContent = code.label;
+  if (state[guardKey] !== code.qrPayload) {
+    drawWifiQr(canvas, code.qrPayload);
+    state[guardKey] = code.qrPayload;
+  }
+}
+
+function renderEmptyWifi() {
+  state.wifiStatus = null;
+  state.wifiQrPayload2g = null;
+  state.wifiQrPayload5g = null;
+  stopWpsCountdown();
+  els.enableWifiBtn.classList.remove("selected");
+  els.disableWifiBtn.classList.remove("selected");
+  els.wifiSsid.textContent = "--";
+  els.wifiSsid5g.hidden = true;
+  els.wifiSsid5gLabel.hidden = true;
+  els.wifiSsid5g.textContent = "--";
+  els.wifiSecurity.textContent = "--";
+  els.wifiHidden.textContent = "--";
+  els.wifiQrWrap.hidden = true;
+  els.wpsBandField.hidden = true;
+  els.wpsPbcBtn.hidden = true;
+}
+
+async function confirmWifiSwitch(enabled) {
+  setBusy(true);
+  try {
+    const preview = await api("/api/wifi/switch-preview", { method: "POST", body: { enabled } });
+    const actionText = enabled ? "开启 WiFi" : "关闭 WiFi";
+    openConfirmDialog({
+      state,
+      els,
+      endpoint: "/api/wifi/switch",
+      token: preview.token,
+      successMessage: `${actionText}请求已提交`,
+      title: `确认${actionText}`,
+      details: {
+        action: actionText,
+        risk: enabled
+          ? "开启 WiFi 将恢复无线广播"
+          : "关闭 WiFi 会断开所有无线客户端；若本机正通过该热点的 WiFi 接入，自身连接也会断开，需经 USB 或重新接入恢复",
+        expiresInMs: preview.expiresInMs,
+        request: preview.request,
+      },
+      onSuccess: refreshWifi,
+    });
+  } catch (error) {
+    if (handleSessionExpired(error)) return;
+    showMessage(error.message, "error");
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function confirmWpsPbc() {
+  setBusy(true);
+  try {
+    const chipIndex = selectedWpsChipIndex();
+    const bandLabel = chipIndex === "1" ? "5G" : "2.4G";
+    const preview = await api("/api/wifi/wps-preview", { method: "POST", body: { chipIndex } });
+    openConfirmDialog({
+      state,
+      els,
+      endpoint: "/api/wifi/wps",
+      token: preview.token,
+      successMessage: "WPS 已启动",
+      title: "确认启动 WPS",
+      details: {
+        action: `WPS 连接（PBC，${bandLabel}）`,
+        risk: "启动后请在 2 分钟内于待接入设备上启动 WPS，期间其他设备可能无法配对",
+        expiresInMs: preview.expiresInMs,
+        request: preview.request,
+      },
+      onSuccess: () => startWpsCountdown(120000, chipIndex),
+    });
+  } catch (error) {
+    if (handleSessionExpired(error)) return;
+    showMessage(error.message, "error");
+  } finally {
+    setBusy(false);
+  }
+}
+
+function selectedWpsChipIndex() {
+  const checked = document.querySelector('input[name="wpsBand"]:checked');
+  return checked ? checked.value : "0";
+}
+
+function startWpsCountdown(durationMs = 120000, chipIndex = "0") {
+  stopWpsCountdown();
+  const bandLabel = chipIndex === "1" ? "5G" : "2.4G";
+  state.wpsDeadline = Date.now() + durationMs;
+  state.wpsActivated = false;
+  state.wpsPollTick = 0;
+  els.wpsCountdown.hidden = false;
+  const render = () => {
+    const remaining = Math.max(0, state.wpsDeadline - Date.now());
+    const totalSeconds = Math.ceil(remaining / 1000);
+    const mm = String(Math.floor(totalSeconds / 60)).padStart(2, "0");
+    const ss = String(totalSeconds % 60).padStart(2, "0");
+    els.wpsCountdown.textContent = `WPS ${state.wpsActivated ? "进行中" : "等待"} (${bandLabel}) ${mm}:${ss}`;
+  };
+  const poll = async () => {
+    if (state.wpsActivated) return;
+    try {
+      const status = await api("/api/wifi/wps-status");
+      const chip = Array.isArray(status) ? status.find((entry) => entry.chipIndex === chipIndex) : null;
+      if (chip && chip.active) {
+        state.wpsActivated = true;
+        render();
+      }
+    } catch (error) {
+      /* 轮询失败保持静默,不中断倒计时;最终由窗口结束统一判定 */
+    }
+  };
+  render();
+  poll();
+  state.wpsTimer = window.setInterval(() => {
+    render();
+    state.wpsPollTick += 1;
+    if (state.wpsPollTick % 3 === 0) poll();
+    if (Math.max(0, state.wpsDeadline - Date.now()) <= 0) {
+      stopWpsCountdown();
+      showMessage(
+        state.wpsActivated ? "WPS 窗口已结束" : "WPS 未启动：请确认 SSID 处于广播、且当前没有其他 WPS 进行中",
+        state.wpsActivated ? "ok" : "error",
+      );
+    }
+  }, 1000);
+}
+
+function stopWpsCountdown() {
+  if (state.wpsTimer) {
+    window.clearInterval(state.wpsTimer);
+    state.wpsTimer = null;
+  }
+  els.wpsCountdown.hidden = true;
+  els.wpsCountdown.textContent = "WPS 窗口: --";
+}
+
+function drawWifiQr(canvas, payload) {
+  const qr = makeQrCode(0, "M");
+  qr.addData(payload);
+  qr.make();
+  const count = qr.getModuleCount();
+  const ctx = canvas.getContext("2d");
+  const size = canvas.width;
+  const cell = size / count;
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0, 0, size, size);
+  ctx.fillStyle = "#000";
+  for (let row = 0; row < count; row += 1) {
+    for (let col = 0; col < count; col += 1) {
+      if (qr.isDark(row, col)) {
+        ctx.fillRect(Math.floor(col * cell), Math.floor(row * cell), Math.ceil(cell), Math.ceil(cell));
+      }
+    }
   }
 }
 
@@ -552,6 +802,9 @@ function setBusy(value) {
     "enableThermalBtn",
     "disableThermalBtn",
     "setModeBtn",
+    "enableWifiBtn",
+    "disableWifiBtn",
+    "wpsPbcBtn",
   ]);
   document.querySelectorAll("button, input").forEach((el) => {
     if (el.id === "password" || el.id === "routerBaseUrl") return;
@@ -570,8 +823,10 @@ function handleSessionExpired(error) {
   state.bandStatus = null;
   state.thermalProbe = null;
   state.pendingAction = null;
+  state.wifiStatus = null;
   renderEmptyNetwork();
   renderEmptyDeviceStatus();
+  renderEmptyWifi();
   syncBandSelections();
   els.sessionBadge.textContent = "未登录";
   els.sessionBadge.classList.remove("ok");
@@ -587,6 +842,9 @@ function handleSessionExpired(error) {
   els.enableThermalBtn.disabled = true;
   els.disableThermalBtn.disabled = true;
   els.setModeBtn.disabled = true;
+  els.enableWifiBtn.disabled = true;
+  els.disableWifiBtn.disabled = true;
+  els.wpsPbcBtn.disabled = true;
   if (els.confirmDialog.open) els.confirmDialog.close("cancel");
   const msg = error.message?.includes("自动重新登录失败")
     ? "路由器会话已失效且自动重新登录失败，请手动重新登录"

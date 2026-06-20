@@ -161,6 +161,42 @@
         </article>
       </section>
 
+      <section class="band">
+        <article class="panel">
+          <div class="panel-head">
+            <h2>WiFi</h2>
+            <div class="thermal-switch" role="group" aria-label="WiFi 开关">
+              <button id="enableWifiBtn" class="ghost" type="button">开启</button>
+              <button id="disableWifiBtn" class="danger ghost" type="button">关闭</button>
+            </div>
+          </div>
+          <dl class="lock-status">
+            <dt>名称</dt><dd id="wifiSsid">--</dd>
+            <dt id="wifiSsid5gLabel" hidden>5G 名称</dt><dd id="wifiSsid5g" hidden>--</dd>
+            <dt>安全</dt><dd id="wifiSecurity">--</dd>
+            <dt>隐藏</dt><dd id="wifiHidden">--</dd>
+          </dl>
+          <div class="cell-lock-actions wifi-actions">
+            <span class="wps-band" id="wpsBandField" role="group" aria-label="WPS 频段">
+              <label><input type="radio" name="wpsBand" value="0" checked> 2.4G</label>
+              <label><input type="radio" name="wpsBand" value="1" id="wpsBand5g"> 5G</label>
+            </span>
+            <button id="wpsPbcBtn" type="button">WPS 连接</button>
+            <span id="wpsCountdown" class="badge" hidden>WPS 窗口: --</span>
+          </div>
+          <div id="wifiQrWrap" class="wifi-qr" hidden>
+            <div class="wifi-qr-item" id="wifiQr2g">
+              <canvas id="wifiQrCanvas2g" width="180" height="180"></canvas>
+              <span class="wifi-qr-label" id="wifiQrLabel2g">2.4G</span>
+            </div>
+            <div class="wifi-qr-item" id="wifiQr5g">
+              <canvas id="wifiQrCanvas5g" width="180" height="180"></canvas>
+              <span class="wifi-qr-label" id="wifiQrLabel5g">5G</span>
+            </div>
+          </div>
+        </article>
+      </section>
+
       <section id="message" class="message" aria-live="polite"></section>
     </main>
 

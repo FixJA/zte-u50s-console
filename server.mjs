@@ -17,6 +17,8 @@ import {
   buildRebootPayload,
   buildThermalSwitchPayload,
   buildUnlock5gCellPayload,
+  buildWifiSwitchPayload,
+  buildWpsPbcPayload,
   publicConfig,
 } from "./lib/zte-protocol.mjs";
 
@@ -259,6 +261,37 @@ async function handleApi(req, res) {
   if (req.method === "POST" && pathname === "/api/thermal/switch") {
     const body = await readJson(req);
     const payload = consumePendingAction(body, "thermal-switch");
+    sendJson(res, 200, { ok: true, request: redactAd(payload), result: await router.setForm(payload) });
+    return;
+  }
+  if (req.method === "GET" && pathname === "/api/wifi/status") {
+    sendJson(res, 200, await router.wifiStatus());
+    return;
+  }
+  if (req.method === "GET" && pathname === "/api/wifi/wps-status") {
+    sendJson(res, 200, await router.wpsStatus());
+    return;
+  }
+  if (req.method === "POST" && pathname === "/api/wifi/switch-preview") {
+    const body = await readJson(req);
+    if (typeof body.enabled !== "boolean") throw badRequest("WiFi 开关状态必须是 true 或 false");
+    sendJson(res, 200, createPendingAction("wifi-switch", buildWifiSwitchPayload(body.enabled)));
+    return;
+  }
+  if (req.method === "POST" && pathname === "/api/wifi/switch") {
+    const body = await readJson(req);
+    const payload = consumePendingAction(body, "wifi-switch");
+    sendJson(res, 200, { ok: true, request: redactAd(payload), result: await router.setForm(payload) });
+    return;
+  }
+  if (req.method === "POST" && pathname === "/api/wifi/wps-preview") {
+    const body = await readJson(req);
+    sendJson(res, 200, createPendingAction("wifi-wps", buildWpsPbcPayload({ chipIndex: body.chipIndex })));
+    return;
+  }
+  if (req.method === "POST" && pathname === "/api/wifi/wps") {
+    const body = await readJson(req);
+    const payload = consumePendingAction(body, "wifi-wps");
     sendJson(res, 200, { ok: true, request: redactAd(payload), result: await router.setForm(payload) });
     return;
   }

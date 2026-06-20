@@ -130,6 +130,27 @@ test("requestJson stays quiet when debug logger is disabled", async () => {
   assert.deepEqual(lines, []);
 });
 
+test("wpsStatus returns normalized per-chip WPS state from queryWpsStatus", async () => {
+  const client = new RouterClient({
+    baseUrl: "192.168.0.1",
+    fetchImpl: async () =>
+      jsonResponse({
+        ResponseList: [
+          { ChipIndex: "0", ActiveWpsAccessPointIndex: "0", WpsStatus: "1", WpsMode: "PBC" },
+          { ChipIndex: "1", ActiveWpsAccessPointIndex: "0", WpsStatus: "0", WpsMode: "" },
+        ],
+      }),
+  });
+  client.loggedIn = true;
+
+  const status = await client.wpsStatus();
+
+  assert.deepEqual(status, [
+    { chipIndex: "0", accessPointIndex: "0", active: true, mode: "PBC" },
+    { chipIndex: "1", accessPointIndex: "0", active: false, mode: "" },
+  ]);
+});
+
 function jsonResponse(body) {
   return {
     ok: true,

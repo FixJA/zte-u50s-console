@@ -21,7 +21,16 @@ import {
   normalizeLiveNetwork,
   normalizeSignal,
   normalizeThermal,
+  normalizeWifiStatus,
+  normalizeWpsStatus,
   sha256Upper,
+  wifiSecurityLabel,
+  buildWifiQrPayload,
+  buildWifiSwitchPayload,
+  buildWpsPbcPayload,
+  decodeBase64,
+  escapeWifiQr,
+  mapAuthModeToQr,
 } from "../lib/zte-protocol.mjs";
 
 test("login password encoding follows ZTE SHA mode 2", () => {
@@ -207,4 +216,137 @@ test("5G cell unlock payload sends the canonical 1,1,1,1 release token", () => {
     isTest: "false",
     nr5g_cell_lock: "1,1,1,1",
   });
+});
+
+test("WiFi switch payload maps boolean to SwitchOption and rejects non-boolean", () => {
+  assert.deepEqual(buildWifiSwitchPayload(true), {
+    goformId: "switchWiFiModule",
+    isTest: "false",
+    SwitchOption: "1",
+  });
+  assert.equal(buildWifiSwitchPayload(false).SwitchOption, "0");
+  assert.throws(() => buildWifiSwitchPayload("true"), /必须是 true 或 false/);
+});
+
+test("WPS PBC payload defaults ChipIndex/AP index to 0 and coerces to string", () => {
+  assert.deepEqual(buildWpsPbcPayload(), {
+    goformId: "startWps",
+    isTest: "false",
+    ChipIndex: "0",
+    WpsMode: "PBC",
+    ActiveWpsAccessPointIndex: "0",
+  });
+  assert.equal(buildWpsPbcPayload({ chipIndex: 1 }).ChipIndex, "1");
+  assert.equal(buildWpsPbcPayload({ accessPointIndex: 1 }).ActiveWpsAccessPointIndex, "1");
+});
+
+test("normalizeWpsStatus maps queryWpsStatus ResponseList to per-chip state", () => {
+  const raw = {
+    ResponseList: [
+      { ChipIndex: "0", ActiveWpsAccessPointIndex: "0", WpsStatus: "1", WpsMode: "PBC" },
+      { ChipIndex: "1", ActiveWpsAccessPointIndex: "0", WpsStatus: "0", WpsMode: "" },
+    ],
+  };
+  assert.deepEqual(normalizeWpsStatus(raw), [
+    { chipIndex: "0", accessPointIndex: "0", active: true, mode: "PBC" },
+    { chipIndex: "1", accessPointIndex: "0", active: false, mode: "" },
+  ]);
+});
+
+test("normalizeWpsStatus returns empty list when ResponseList is missing", () => {
+  assert.deepEqual(normalizeWpsStatus({}), []);
+  assert.deepEqual(normalizeWpsStatus(undefined), []);
+});
+
+test("normalizeWifiStatus emits separate 2.4G/5G QR codes when dual-band is split", () => {
+  const data = normalizeWifiStatus({
+    wifi_onoff_state: "1",
+    wifi_chip1_ssid1_ssid: "MyHotspot",
+    wifi_chip2_ssid1_ssid: "MyHotspot_5G",
+    wifi_chip1_ssid1_auth_mode: "WPA2PSK",
+    wifi_chip2_ssid1_auth_mode: "WPA2PSK",
+    m_HideSSID: "0",
+    wifi_chip1_ssid1_password: Buffer.from("s3cret").toString("base64"),
+    wifi_chip2_ssid1_password: Buffer.from("five-pass").toString("base64"),
+  });
+  assert.equal(data.enabled, true);
+  assert.equal(data.ssid, "MyHotspot");
+  assert.equal(data.ssid5g, "MyHotspot_5G");
+  assert.equal(data.sync, false);
+  assert.equal(data.qrCodes.length, 2);
+  assert.equal(data.qrCodes[0].label, "2.4G");
+  assert.equal(data.qrCodes[0].qrPayload, "WIFI:T:WPA;S:MyHotspot;P:s3cret;;");
+  assert.equal(data.qrCodes[1].label, "5G");
+  assert.equal(data.qrCodes[1].qrPayload, "WIFI:T:WPA;S:MyHotspot_5G;P:five-pass;;");
+});
+
+test("normalizeWifiStatus collapses to a single QR when dual-band is unified", () => {
+  const data = normalizeWifiStatus({
+    wifi_onoff_state: "1",
+    wifi_chip1_ssid1_ssid: "ZTE_4847F6",
+    wifi_chip2_ssid1_ssid: "ZTE_4847F6",
+    wifi_chip1_ssid1_auth_mode: "WPA2PSK",
+    wifi_chip2_ssid1_auth_mode: "WPA2PSK",
+    wifi_chip1_ssid1_password: Buffer.from("s3cret").toString("base64"),
+    wifi_syncparas_flag: "1",
+  });
+  assert.equal(data.sync, true);
+  assert.equal(data.qrCodes.length, 1);
+  assert.equal(data.qrCodes[0].label, "2.4G 和 5G");
+  assert.equal(data.qrCodes[0].qrPayload, "WIFI:T:WPA;S:ZTE_4847F6;P:s3cret;;");
+});
+
+test("normalizeWifiStatus returns placeholders and no QR codes when the router returns nothing", () => {
+  const data = normalizeWifiStatus({});
+  assert.equal(data.enabled, null);
+  assert.equal(data.enabledLabel, "--");
+  assert.equal(data.ssid, "--");
+  assert.equal(data.security, "--");
+  assert.equal(data.securityLabel, "--");
+  assert.equal(data.hidden, false);
+  assert.deepEqual(data.qrCodes, []);
+});
+
+test("mapAuthModeToQr collapses WPA variants to WPA and open networks to nopass", () => {
+  assert.equal(mapAuthModeToQr("WPA2PSK"), "WPA");
+  assert.equal(mapAuthModeToQr("WPA3PSK"), "WPA");
+  assert.equal(mapAuthModeToQr("WPA2PSKWPA3PSK"), "WPA");
+  assert.equal(mapAuthModeToQr("WPAPSK"), "WPA");
+  assert.equal(mapAuthModeToQr("OPEN"), "nopass");
+  assert.equal(mapAuthModeToQr(""), "nopass");
+  assert.equal(mapAuthModeToQr("WEP"), "WEP");
+});
+
+test("wifiSecurityLabel renders friendly security names", () => {
+  assert.equal(wifiSecurityLabel("WPA2PSK"), "WPA2-PSK");
+  assert.equal(wifiSecurityLabel("WPA2PSKWPA3PSK"), "WPA2/WPA3");
+  assert.equal(wifiSecurityLabel("OPEN"), "开放");
+  assert.equal(wifiSecurityLabel(""), "--");
+});
+
+test("escapeWifiQr escapes backslash first then delimiters", () => {
+  assert.equal(escapeWifiQr("a\\b;c,c:d"), "a\\\\b\\;c\\,c\\:d");
+});
+
+test("buildWifiQrPayload emits nopass for open networks and WPA when a password is known", () => {
+  assert.equal(
+    buildWifiQrPayload({ ssid: "Open", password: "", security: "OPEN", hidden: false }),
+    "WIFI:T:nopass;S:Open;;",
+  );
+  assert.equal(
+    buildWifiQrPayload({ ssid: "Net", password: "p", security: "WPA2PSK", hidden: true }),
+    "WIFI:T:WPA;S:Net;P:p;H:true;;",
+  );
+  // 密码存在但 AuthMode 缺失:仍按 WPA 生成,避免误判为开放网络
+  assert.equal(
+    buildWifiQrPayload({ ssid: "Net", password: "p", security: "", hidden: false }),
+    "WIFI:T:WPA;S:Net;P:p;;",
+  );
+  // SSID 未知:返回空串,前端据此跳过二维码渲染
+  assert.equal(buildWifiQrPayload({ ssid: "--", password: "p", security: "WPA2PSK" }), "");
+  assert.equal(buildWifiQrPayload({}), "");
+});
+
+test("decodeBase64 round-trips a base64 string back to utf-8", () => {
+  assert.equal(decodeBase64(Buffer.from("hello").toString("base64")), "hello");
 });
